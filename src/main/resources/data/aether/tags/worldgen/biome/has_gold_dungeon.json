@@ -1,0 +1,9 @@
+{
+  "replace": false,
+  "values": [
+    "aether:skyroot_forest",
+    "aether:skyroot_grove",
+    "aether:skyroot_thicket",
+    "aether:golden_forest"
+  ]
+}

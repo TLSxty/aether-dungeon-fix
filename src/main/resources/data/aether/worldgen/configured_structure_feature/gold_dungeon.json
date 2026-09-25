@@ -1,0 +1,7 @@
+{
+  "type": "aether_dungeon_fix:gold_dungeon",
+  "config": {},
+  "biomes": "#aether:has_gold_dungeon",
+  "spawn_overrides": {},
+  "step": "surface_structures"
+}

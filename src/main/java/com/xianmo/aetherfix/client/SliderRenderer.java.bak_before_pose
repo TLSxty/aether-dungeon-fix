@@ -1,0 +1,68 @@
+package com.xianmo.aetherfix.client;
+
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexConsumer;
+import com.xianmo.aetherfix.AetherDungeonFix;
+import com.xianmo.aetherfix.entity.SliderEntity;
+import net.minecraft.client.model.EntityModel;
+import net.minecraft.client.model.geom.ModelLayerLocation;
+import net.minecraft.client.model.geom.ModelPart;
+import net.minecraft.client.model.geom.PartPose;
+import net.minecraft.client.model.geom.builders.CubeListBuilder;
+import net.minecraft.client.model.geom.builders.LayerDefinition;
+import net.minecraft.client.model.geom.builders.MeshDefinition;
+import net.minecraft.client.model.geom.builders.PartDefinition;
+import net.minecraft.client.renderer.entity.EntityRendererProvider;
+import net.minecraft.client.renderer.entity.MobRenderer;
+import net.minecraft.resources.ResourceLocation;
+
+/**
+ * S1 占位渲染：一个 32x32x32 立方体 + 白色混凝土贴图，先保证不崩溃且可见。
+ * S4 会替换为真正的 SliderModel / 四档贴图 / 发光层。
+ */
+public class SliderRenderer extends MobRenderer<SliderEntity, SliderRenderer.Model> {
+
+    public static final ModelLayerLocation LAYER =
+            new ModelLayerLocation(new ResourceLocation(AetherDungeonFix.MODID, "slider"), "main");
+
+    private static final ResourceLocation TEX =
+            new ResourceLocation("textures/block/white_concrete.png");
+
+    public SliderRenderer(EntityRendererProvider.Context ctx) {
+        super(ctx, new Model(ctx.bakeLayer(LAYER)), 2.0F);
+    }
+
+    @Override
+    public ResourceLocation getTextureLocation(SliderEntity entity) {
+        return TEX;
+    }
+
+    public static class Model extends EntityModel<SliderEntity> {
+        private final ModelPart box;
+
+        public Model(ModelPart root) {
+            this.box = root.getChild("box");
+        }
+
+        public static LayerDefinition createBodyLayer() {
+            MeshDefinition mesh = new MeshDefinition();
+            PartDefinition root = mesh.getRoot();
+            root.addOrReplaceChild("box",
+                    CubeListBuilder.create().texOffs(0, 0)
+                            .addBox(-16.0F, -16.0F, -16.0F, 32, 32, 32),
+                    PartPose.ZERO);
+            return LayerDefinition.create(mesh, 64, 64);
+        }
+
+        @Override
+        public void setupAnim(SliderEntity entity, float limbSwing, float limbSwingAmount,
+                              float ageInTicks, float netHeadYaw, float headPitch) {
+        }
+
+        @Override
+        public void renderToBuffer(PoseStack pose, VertexConsumer buf, int light, int overlay,
+                                   float r, float g, float b, float a) {
+            this.box.render(pose, buf, light, overlay, r, g, b, a);
+        }
+    }
+}

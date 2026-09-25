@@ -1,0 +1,79 @@
+package com.xianmo.aetherfix.world.piece;
+
+import com.xianmo.aetherfix.AetherDungeonFix;
+import net.minecraft.core.BlockPos;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.RandomizableContainer;
+import net.minecraft.world.level.ServerLevelAccessor;
+import net.minecraft.world.level.WorldGenLevel;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.Rotation;
+import net.minecraft.world.level.block.entity.RandomizableContainerBlockEntity;
+import net.minecraft.world.level.chunk.ChunkGenerator;
+import net.minecraft.world.level.levelgen.structure.BoundingBox;
+import net.minecraft.world.level.levelgen.structure.StructureFeatureManager;
+import net.minecraft.world.level.levelgen.structure.pieces.StructurePieceSerializationContext;
+import net.minecraft.world.level.levelgen.structure.templatesystem.StructureManager;
+import net.minecraft.world.level.levelgen.structure.templatesystem.StructurePlaceSettings;
+
+import java.util.Random;
+
+/**
+ * 黄金地牢 Boss 房。
+ *
+ * 【2026-09-24 关键修正】实机发现模板巴形正确、模板尺寸正确，但房间内部仍为实心
+ * （boss_room_fix.nbt 含 4041 个 air，但未生效）。这里不再依赖模板的 air，改为
+ * 在 postProcess 里【显式挖空】内部。因为 bossRoom 是最后 addPiece 的，
+ * 它的 postProcess 最后执行，无论 island 是否覆盖，挖空都发生在之后。
+ */
+public class GoldBossRoom extends GoldDungeonPiece {
+
+    public GoldBossRoom(StructureManager manager, String name, BlockPos pos, Rotation rotation) {
+        super(AetherDungeonFix.GOLD_BOSS_ROOM.get(), manager, name,
+              new StructurePlaceSettings().setRotation(rotation), pos);
+        this.setOrientation(rotation.rotate(net.minecraft.core.Direction.SOUTH));
+    }
+
+    public GoldBossRoom(StructurePieceSerializationContext context, CompoundTag tag) {
+        super(AetherDungeonFix.GOLD_BOSS_ROOM.get(), tag, context.structureManager(),
+              location -> settingsFromTag(tag));
+    }
+
+    @Override
+    public void postProcess(WorldGenLevel level, StructureFeatureManager manager, ChunkGenerator gen,
+                            Random random, BoundingBox box, net.minecraft.world.level.ChunkPos chunkPos,
+                            BlockPos pos) {
+        // 先贴模板（墙体、地板、标记块等）
+        super.postProcess(level, manager, gen, random, box, chunkPos, pos);
+
+        // 再显式挖空内部（保留外壳 2 格）
+        BoundingBox bb = this.getBoundingBox();
+        int x1 = bb.minX() + 2, x2 = bb.maxX() - 2;
+        int y1 = bb.minY() + 1, y2 = bb.maxY() - 1;
+        int z1 = bb.minZ() + 2, z2 = bb.maxZ() - 2;
+        int carved = 0;
+        for (int x = x1; x <= x2; x++) {
+            for (int y = y1; y <= y2; y++) {
+                for (int z = z1; z <= z2; z++) {
+                    if (box.isInside(x, y, z)) {
+                        this.placeBlock(level, Blocks.AIR.defaultBlockState(), x, y, z, box);
+                        carved++;
+                    }
+                }
+            }
+        }
+        com.xianmo.aetherfix.world.GoldDungeonStructure.log(
+            "[GOLD-DBG] bossCarve box=" + bb + " carved=" + carved);
+    }
+
+    @Override
+    protected void handleDataMarker(String marker, BlockPos pos, ServerLevelAccessor level,
+                                    Random random, BoundingBox box) {
+        if (marker.equals("Treasure Chest")) {
+            RandomizableContainerBlockEntity.setLootTable(level, random, pos.below(),
+                    new ResourceLocation("aether", "chests/dungeon/gold/gold_dungeon_reward"));
+            level.setBlock(pos, Blocks.AIR.defaultBlockState(), 2);
+        }
+    }
+}

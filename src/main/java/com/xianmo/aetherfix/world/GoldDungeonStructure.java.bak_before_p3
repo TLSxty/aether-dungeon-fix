@@ -1,0 +1,171 @@
+package com.xianmo.aetherfix.world;
+
+import com.xianmo.aetherfix.world.piece.GoldBossRoom;
+import com.xianmo.aetherfix.world.piece.GoldIsland;
+import com.xianmo.aetherfix.world.piece.GoldStub;
+import com.xianmo.aetherfix.world.piece.GoldTunnel;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.core.Vec3i;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.util.Mth;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.block.Rotation;
+import net.minecraft.world.level.levelgen.GenerationStep;
+import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.level.levelgen.feature.StructureFeature;
+import net.minecraft.world.level.levelgen.feature.configurations.NoneFeatureConfiguration;
+import net.minecraft.world.level.levelgen.structure.BoundingBox;
+import net.minecraft.world.level.levelgen.structure.pieces.PieceGenerator;
+import net.minecraft.world.level.levelgen.structure.pieces.PieceGeneratorSupplier;
+import net.minecraft.world.level.levelgen.structure.pieces.StructurePiecesBuilder;
+import net.minecraft.world.level.levelgen.structure.templatesystem.StructureManager;
+import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;
+
+import java.io.FileWriter;
+import java.util.Optional;
+import java.util.Random;
+
+/**
+ * 黄金地牢结构生成入口（方案C）。
+ *
+ * 【2026-09-24 P0+P1 重写】对照 1.19.2 字节码修正三处关键错误：
+ *  P0-1 getBossRoomOffset / getStubOffset 偏移量符号反了：
+ *       原版 = new Vec3i(sx/-2, sy/-2, sz/-2)，再 .relative(dir, -1)
+ *       我方旧版 = new Vec3i(sx+2, sy+2, sz+2).relative(dir)  → 方向完全相反
+ *  P0-2 tunnel 定位基准错：原版从 bossRoom 的 BoundingBox 外推，
+ *       我方旧版用 bossPos.offset(dir*3, 1, dir*3)
+ *  P0-3 piece 加入顺序：原版 tunnel 先 addPiece，bossRoom 后 addPiece
+ *  P1  新增调试日志 D:/gold_dungeon_debug.txt（照白银 SilverDungeonStructure.log）
+ *
+ * 注：1.18.2 的 StructureFeature 接口与 1.19.2 的 Structure 不同，
+ *     把 centerPos 逻辑移植进 generatePieces(PiecesBuilder, Context) 即可。
+ */
+public class GoldDungeonStructure extends StructureFeature<NoneFeatureConfiguration> {
+
+    private static final String DEBUG_FILE = "D:/gold_dungeon_debug.txt";
+
+    public GoldDungeonStructure() {
+        super(NoneFeatureConfiguration.CODEC, GoldDungeonStructure::createGenerator);
+    }
+
+    /** P1 调试日志：项目结束前保留（记忆 #73）。 */
+    static void log(String s) {
+        try (FileWriter fw = new FileWriter(DEBUG_FILE, true)) {
+            fw.write(s + System.lineSeparator());
+        } catch (Throwable ignored) {
+        }
+    }
+
+    @Override
+    public GenerationStep.Decoration step() {
+        return GenerationStep.Decoration.SURFACE_STRUCTURES;
+    }
+
+    private static Optional<PieceGenerator<NoneFeatureConfiguration>> createGenerator(
+            PieceGeneratorSupplier.Context<NoneFeatureConfiguration> context) {
+        if (!context.validBiomeOnTop(Heightmap.Types.WORLD_SURFACE_WG)) {
+            return Optional.empty();
+        }
+        return Optional.of(GoldDungeonStructure::generatePieces);
+    }
+
+    private static void generatePieces(StructurePiecesBuilder builder,
+                                       PieceGenerator.Context<NoneFeatureConfiguration> context) {
+        ChunkPos chunkPos = context.chunkPos();
+        StructureManager manager = context.structureManager();
+        Random random = context.random();
+
+        log("==== GOLD-DBG " + chunkPos + " ====");
+
+        int surfaceY = context.chunkGenerator().getBaseHeight(
+                chunkPos.getMinBlockX(), chunkPos.getMinBlockZ(),
+                Heightmap.Types.WORLD_SURFACE_WG, context.heightAccessor());
+
+        int belowTerrain = 2;
+        int minY = 35;
+        int rangeY = 70;
+        int baseHeight = surfaceY - belowTerrain;
+        int height = Math.max(baseHeight, minY + random.nextInt(rangeY));
+
+        BlockPos elevatedPos = new BlockPos(chunkPos.getMinBlockX(), height, chunkPos.getMinBlockZ());
+        Rotation islandRot = Rotation.NONE;
+
+        // 1) 大岛
+        GoldIsland island = new GoldIsland(manager, "island", elevatedPos, islandRot);
+        builder.addPiece(island);
+        log("[GOLD-DBG] island     pos=" + elevatedPos + "  bbox=" + island.getBoundingBox());
+
+        // 2) 【关键】以岛包围盒中心为后续所有定位基准
+        BlockPos centerPos = island.getBoundingBox().getCenter();
+        log("[GOLD-DBG] centerPos=" + centerPos + "  elevatedPos=" + elevatedPos);
+
+        // 3) 小岛桩：围绕 centerPos 极坐标分布
+        Vec3i stubOffset = getStubOffset(manager);
+        log("[GOLD-DBG] stubOffset=" + stubOffset);
+        addIslandStubs(manager, random, builder, centerPos, stubOffset, islandRot);
+
+        // 4) Boss 房：centerPos + boss 偏移（照 1.19.2 字节码，偏移量取 size/-2）
+        Rotation rotation = Rotation.getRandom(random);
+        Direction direction = rotation.rotate(Direction.SOUTH);
+        Vec3i bossOff = getBossRoomOffset(manager, direction);
+        BlockPos bossPos = centerPos.offset(bossOff);
+        log("[GOLD-DBG] rotation=" + rotation + "  dir=" + direction + "  bossOffset=" + bossOff);
+        log("[GOLD-DBG] bossPos=" + bossPos);
+
+        GoldBossRoom bossRoom = new GoldBossRoom(manager, "boss_room_fix", bossPos, rotation);
+
+        // 5) 隧道：从 boss 房包围盒沿 dir 外推（原版顺序：tunnel 先 addPiece）
+        BlockPos tunnelPos = computeTunnelPos(bossRoom, direction);
+        log("[GOLD-DBG] tunnelPos=" + tunnelPos);
+        builder.addPiece(new GoldTunnel(manager, "tunnel", tunnelPos, rotation));
+
+        // 6) boss 房后 addPiece
+        builder.addPiece(bossRoom);
+        log("[GOLD-DBG] bossRoom bbox=" + bossRoom.getBoundingBox());
+        log("[GOLD-DBG] done. island+stubs+tunnel+bossRoom added.");
+    }
+
+    /** 从 boss 房包围盒中心，沿 dir 方向推出到房间外侧。 */
+    private static BlockPos computeTunnelPos(GoldBossRoom bossRoom, Direction dir) {
+        BoundingBox bb = bossRoom.getBoundingBox();
+        BlockPos c = bb.getCenter();
+        int span = Math.abs(dir.getStepX()) != 0 ? bb.getXSpan() : bb.getZSpan();
+        int off = span / 2 + 3;
+        return c.offset(dir.getStepX() * off, 0, dir.getStepZ() * off);
+    }
+
+    /** 照 1.19.2 addIslandStubs：极坐标圆周分布，count = stubIslandCount + rand(5) */
+    private static void addIslandStubs(StructureManager manager, Random random,
+                                       StructurePiecesBuilder builder, BlockPos centerPos,
+                                       Vec3i stubOffset, Rotation rotation) {
+        int stubIslandCount = 6;
+        int count = stubIslandCount + random.nextInt(5);
+        log("[GOLD-DBG] stubCount=" + count);
+        for (int i = 0; i < count; i++) {
+            float angle = random.nextFloat() * 6.2831855F;
+            float radius = (random.nextFloat() * 0.125F + 0.7F) * 24.0F;
+            int dx = Mth.floor(Math.cos(angle) * radius);
+            int dy = -Mth.floor(24.0D * random.nextFloat() * 0.3D);
+            int dz = Mth.floor(-Math.sin(angle) * radius);
+            BlockPos p = centerPos.offset(dx, dy, dz).offset(stubOffset);
+            builder.addPiece(new GoldStub(manager, "stub", p, rotation));
+            log("[GOLD-DBG]   stub[" + i + "] pos=" + p);
+        }
+    }
+
+    /** 【P0 修正】1.19.2 原版 = new Vec3i(sx/-2, sy/-2, sz/-2) */
+    private static Vec3i getStubOffset(StructureManager manager) {
+        StructureTemplate t = manager.getOrCreate(new ResourceLocation("aether", "gold_dungeon/stub"));
+        Vec3i s = t.getSize();
+        return new Vec3i(s.getX() / -2, s.getY() / -2, s.getZ() / -2);
+    }
+
+    /** 【P0 修正】1.19.2 原版 = new Vec3i(sx/-2, sy/-2, sz/-2).relative(dir, -1) */
+    private static Vec3i getBossRoomOffset(StructureManager manager, Direction dir) {
+        StructureTemplate t = manager.getOrCreate(new ResourceLocation("aether", "gold_dungeon/boss_room_fix"));
+        Vec3i s = t.getSize();
+        log("[GOLD-DBG] bossTplSize=" + s);
+        return new Vec3i(s.getX() / -2, s.getY() / -2, s.getZ() / -2).relative(dir, -1);
+    }
+}

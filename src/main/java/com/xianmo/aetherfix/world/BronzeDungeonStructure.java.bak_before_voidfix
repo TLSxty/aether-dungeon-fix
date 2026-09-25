@@ -1,0 +1,126 @@
+package com.xianmo.aetherfix.world;
+
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.LevelHeightAccessor;
+import net.minecraft.world.level.NoiseColumn;
+import net.minecraft.world.level.levelgen.GenerationStep;
+import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.level.levelgen.feature.StructureFeature;
+import net.minecraft.world.level.levelgen.feature.configurations.JigsawConfiguration;
+import net.minecraft.world.level.levelgen.structure.PoolElementStructurePiece;
+import net.minecraft.world.level.levelgen.structure.StructurePiece;
+import net.minecraft.world.level.levelgen.structure.pieces.PieceGenerator;
+import net.minecraft.world.level.levelgen.structure.pieces.PieceGeneratorSupplier;
+import net.minecraft.world.level.levelgen.structure.pools.JigsawPlacement;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.List;
+import java.util.Optional;
+
+/**
+ * 青铜地牢结构入口。
+ *
+ * 1.18.2 没有通用的 minecraft:jigsaw 结构类型，
+ * 必须像白银一样自己注册一个 StructureFeature，
+ * 内部调用 JigsawPlacement.addPieces 完成拼装。
+ *
+ * 模板与 template_pool 全部复用 1.18.2 本体已有的资产：
+ *   data/aether/structures/bronze_dungeon/*.nbt
+ *   data/aether/worldgen/template_pool/bronze_dungeon/*.json
+ * 本类只负责“把它接进世界生成”。
+ */
+public class BronzeDungeonStructure extends StructureFeature<JigsawConfiguration> {
+
+    // [DEBUG] 临时诊断日志：验证“同一结构出现多个 boss 房”。定位后移除。
+    private static final Logger DBG = LogManager.getLogger("BRONZE-DBG");
+
+    public BronzeDungeonStructure() {
+        super(JigsawConfiguration.CODEC, BronzeDungeonStructure::createGenerator);
+    }
+
+    /** 必须覆写，否则父类返回 null 引发 NPE（白银同款坑） */
+    @Override
+    public GenerationStep.Decoration step() {
+        return GenerationStep.Decoration.SURFACE_STRUCTURES;
+    }
+
+    /** 1.18.2 不会自动按 biomes 标签过滤，必须手动调用 */
+    private static Optional<PieceGenerator<JigsawConfiguration>> createGenerator(
+            PieceGeneratorSupplier.Context<JigsawConfiguration> context) {
+        if (!context.validBiomeOnTop(Heightmap.Types.WORLD_SURFACE_WG)) {
+            return Optional.empty();
+        }
+        ChunkPos chunkPos = context.chunkPos();
+        int surfaceY = context.chunkGenerator().getBaseHeight(
+                chunkPos.getMinBlockX(), chunkPos.getMinBlockZ(),
+                Heightmap.Types.WORLD_SURFACE_WG, context.heightAccessor());
+
+        // [VOID-FIX] 虚空保护：天境是空岛维度，大片区域没有岛屿。
+        // 若该列不存在任何实体方块（或地表高度落在世界底面），
+        // 则取消生成，避免地牢悬在虚空 y=-32 处。
+        if (surfaceY <= context.heightAccessor().getMinBuildHeight()) {
+            return Optional.empty();
+        }
+        if (!hasSolidColumn(context, chunkPos)) {
+            return Optional.empty();
+        }
+
+        // 1.19.2 的 aboveBottom=32 语义 -> 从地表往下 32 格作为起点
+        BlockPos startPos = new BlockPos(chunkPos.getMinBlockX(), surfaceY - 32, chunkPos.getMinBlockZ());
+
+        Optional<PieceGenerator<JigsawConfiguration>> base =
+                JigsawPlacement.addPieces(context, PoolElementStructurePiece::new, startPos, false, false);
+
+        // [DEBUG] 包裹原生成器：先生成，再统计片段总数与 boss_room 出现次数
+        return base.map(gen -> (PieceGenerator<JigsawConfiguration>) (builder, ctx) -> {
+            gen.generatePieces(builder, ctx);
+            try {
+                List<StructurePiece> pieces = builder.build().pieces();
+                int bossCount = 0;
+                StringBuilder sb = new StringBuilder();
+                for (StructurePiece p : pieces) {
+                    String s = String.valueOf(p);
+                    sb.append("\n    ").append(s);
+                    if (s.contains("boss_room")) {
+                        bossCount++;
+                    }
+                }
+                DBG.info("[BRONZE-DBG] chunk={} surfaceY={} startY={} totalPieces={} bossRoomCount={}{}",
+                        chunkPos, surfaceY, startPos.getY(), pieces.size(), bossCount, sb.toString());
+            } catch (Throwable t) {
+                DBG.warn("[BRONZE-DBG] inspect failed", t);
+            }
+        });
+    }
+
+    /**
+     * [VOID-FIX] 检查该 chunk 的四角列是否存在实体方块。
+     * 天境为漂浮空岛，虚空区域四角全为空气，此时应放弃生成。
+     */
+    private static boolean hasSolidColumn(PieceGeneratorSupplier.Context<JigsawConfiguration> context,
+                                          ChunkPos chunkPos) {
+        LevelHeightAccessor ha = context.heightAccessor();
+        int minY = ha.getMinBuildHeight();
+        int maxY = ha.getMaxBuildHeight();
+        int[][] corners = new int[][]{
+                {chunkPos.getMinBlockX(), chunkPos.getMinBlockZ()},
+                {chunkPos.getMaxBlockX(), chunkPos.getMinBlockZ()},
+                {chunkPos.getMinBlockX(), chunkPos.getMaxBlockZ()},
+                {chunkPos.getMaxBlockX(), chunkPos.getMaxBlockZ()}
+        };
+        int solidCorners = 0;
+        for (int[] c : corners) {
+            NoiseColumn col = context.chunkGenerator().getBaseColumn(c[0], c[1], ha);
+            for (int y = minY; y < maxY; y++) {
+                if (!col.getBlock(y).isAir()) {
+                    solidCorners++;
+                    break;
+                }
+            }
+        }
+        // 至少有一角落在实地上才允许生成
+        return solidCorners > 0;
+    }
+}

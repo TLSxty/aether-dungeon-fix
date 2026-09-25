@@ -1,0 +1,169 @@
+package com.xianmo.aetherfix.world;
+
+import com.xianmo.aetherfix.world.piece.SilverDungeonRoom;
+import com.xianmo.aetherfix.world.piece.SilverFloorPiece;
+import com.xianmo.aetherfix.world.piece.SilverTemplePiece;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.world.level.block.Rotation;
+import net.minecraft.world.level.levelgen.structure.pieces.StructurePiecesBuilder;
+import net.minecraft.world.level.levelgen.structure.templatesystem.StructureManager;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Random;
+
+public class SilverDungeonBuilder {
+    private static final int CHEST_ROOM = 1;
+    private static final int STAIRS = 2;
+    private static final int FINAL_STAIRS = 4;
+    private static final int STAIRS_MIDDLE = 8;
+    private static final int STAIRS_TOP = 16;
+    private static final int NORTH_DOOR = 32;
+    private static final int WEST_DOOR = 64;
+    private static final int VISITED = 128;
+
+    private static final int ROOM_SPACING = 7;
+    private static final int FLOOR_HEIGHT = 5;
+
+    private final Random random;
+    private final int[][][] grid;
+    private final int width;
+    private final int height;
+    private final int length;
+
+    public SilverDungeonBuilder(Random random, int x, int y, int z) {
+        this.random = random;
+        this.grid = new int[x][y][z];
+        this.width = x;
+        this.height = y;
+        this.length = z;
+        this.populateGrid();
+    }
+
+    private void populateGrid() {
+        int finalStairsX = this.random.nextInt(this.width);
+        this.grid[finalStairsX][0][0] = FINAL_STAIRS;
+        this.grid[finalStairsX][1][0] = STAIRS_MIDDLE;
+        this.grid[finalStairsX][2][0] = STAIRS_TOP;
+        int firstStairsX = this.random.nextInt(this.width);
+        this.grid[firstStairsX][0][1] = STAIRS;
+        this.grid[firstStairsX][1][1] = STAIRS_TOP;
+        int secondStairsX = this.random.nextInt(this.width);
+        this.grid[secondStairsX][1][2] = STAIRS;
+        this.grid[secondStairsX][2][2] = STAIRS_TOP;
+        for (int y = 0; y < this.height; ++y) {
+            this.traverseRooms(1, y, 1, 0);
+            for (int z = 0; z < this.length; ++z) {
+                for (int x = 0; x < this.width; ++x) {
+                    if ((this.grid[x][y][z] & 0x1F) != 0 || this.random.nextInt(3) == 0) {
+                        continue;
+                    }
+                    this.grid[x][y][z] |= CHEST_ROOM;
+                }
+            }
+        }
+    }
+
+    private boolean traverseRooms(int x, int y, int z, int typesToAvoid) {
+        if (x < 0 || x >= this.width || z < 0 || z >= this.length) {
+            return false;
+        }
+        int room = this.grid[x][y][z];
+        if ((room & typesToAvoid) > 0) {
+            return false;
+        }
+        if ((room & VISITED) == VISITED) {
+            return this.random.nextInt(3) == 0;
+        }
+        this.grid[x][y][z] |= VISITED;
+        int blacklist = this.setNeighborBlacklist(room);
+        List<Direction> directions = new ArrayList<>(4);
+        Collections.addAll(directions, Direction.NORTH, Direction.WEST, Direction.SOUTH, Direction.EAST);
+        for (int i = directions.size(); i > 0; --i) {
+            Direction dir = directions.remove(this.random.nextInt(i));
+            switch (dir) {
+                case NORTH:
+                    if (this.traverseRooms(x, y, z - 1, blacklist)) {
+                        this.grid[x][y][z] |= NORTH_DOOR;
+                    }
+                    break;
+                case SOUTH:
+                    if (this.traverseRooms(x, y, z + 1, blacklist)) {
+                        this.grid[x][y][z + 1] |= NORTH_DOOR;
+                    }
+                    break;
+                case WEST:
+                    if (this.traverseRooms(x - 1, y, z, blacklist)) {
+                        this.grid[x][y][z] |= WEST_DOOR;
+                    }
+                    break;
+                case EAST:
+                    if (this.traverseRooms(x + 1, y, z, blacklist)) {
+                        this.grid[x + 1][y][z] |= WEST_DOOR;
+                    }
+                    break;
+                default:
+                    break;
+            }
+        }
+        return true;
+    }
+
+    private int setNeighborBlacklist(int roomType) {
+        int blacklist = STAIRS | STAIRS_MIDDLE;
+        if ((roomType & STAIRS_TOP) == STAIRS_TOP) {
+            blacklist |= STAIRS;
+        }
+        if ((roomType & STAIRS) == STAIRS) {
+            blacklist |= STAIRS_TOP;
+        }
+        return blacklist;
+    }
+
+
+    public void assembleDungeon(StructurePiecesBuilder builder, StructureManager templateManager,
+                            BlockPos startPos, Rotation rotation, Direction direction) {
+        BlockPos origin = startPos.offset(
+                direction.getStepZ() * 5 - direction.getStepX(),
+                FLOOR_HEIGHT,
+                -direction.getStepX() * 5 - direction.getStepZ());
+        Rotation sideways = rotation.getRotated(Rotation.CLOCKWISE_90);
+        for (int y = this.height - 1; y >= 0; --y) {
+            int baseY = origin.getY() + y * FLOOR_HEIGHT;
+            for (int z = 0; z < this.length; ++z) {
+                for (int x = 0; x < this.width; ++x) {
+                    int xo = origin.getX() + direction.getStepZ() * x * ROOM_SPACING + direction.getStepX() * z * ROOM_SPACING;
+                    int zo = origin.getZ() + direction.getStepZ() * z * ROOM_SPACING - direction.getStepX() * x * ROOM_SPACING;
+                    BlockPos bp = new BlockPos(xo, baseY, zo);
+                    int room = this.grid[x][y][z];
+                    boolean northDoor = (room & NORTH_DOOR) == NORTH_DOOR;
+                    boolean westDoor = (room & WEST_DOOR) == WEST_DOOR;
+                    BlockPos nPos = bp.offset(direction.getStepZ(), 0, -direction.getStepX());
+                    BlockPos wPos = bp.relative(direction);
+                    SilverFloorPiece fp = new SilverFloorPiece(templateManager, "floor",
+                            bp.offset(direction.getStepX() + direction.getStepZ(), -1, direction.getStepZ() - direction.getStepX()), rotation);
+                    builder.addPiece(fp);
+                    SilverTemplePiece np = new SilverTemplePiece(templateManager, northDoor ? "door" : "wall", nPos, rotation);
+                    builder.addPiece(np);
+                    SilverTemplePiece wp = new SilverTemplePiece(templateManager, westDoor ? "door" : "wall", wPos, sideways);
+                    builder.addPiece(wp);
+                    if ((room & FINAL_STAIRS) == FINAL_STAIRS) {
+                        { SilverDungeonRoom _ts=new SilverDungeonRoom(templateManager,"tall_staircase",bp.offset(2,0,2),rotation); builder.addPiece(_ts); log("[aetherfix] P tallstair x="+x+" z="+z+" y="+y+" bbox="+_ts.getBoundingBox()); }
+                        builder.addPiece(new SilverTemplePiece(templateManager, "boss_door",
+                                bp.offset(direction.getStepZ() * 3, 0, -direction.getStepX() * 3), rotation));
+                        continue;
+                    }
+                    if ((room & STAIRS) == STAIRS) {
+                        { SilverDungeonRoom _sc=new SilverDungeonRoom(templateManager,"staircase",bp.offset(2,0,2),rotation); builder.addPiece(_sc); log("[aetherfix] P stair x="+x+" z="+z+" y="+y+" bbox="+_sc.getBoundingBox()); }
+                        continue;
+                    }
+                    if ((room & CHEST_ROOM) == CHEST_ROOM) {
+                        { SilverDungeonRoom _cr=new SilverDungeonRoom(templateManager,"chest_room",bp.offset(3,0,3),rotation); builder.addPiece(_cr); log("[aetherfix] P chest x="+x+" z="+z+" y="+y+" bbox="+_cr.getBoundingBox()); }
+                    }
+                }
+            }
+        }
+    }
+}

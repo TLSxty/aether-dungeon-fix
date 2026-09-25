@@ -1,0 +1,23 @@
+package com.xianmo.aetherfix.client;
+
+import com.xianmo.aetherfix.AetherDungeonFix;
+import com.xianmo.aetherfix.entity.ModEntityTypes;
+import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.client.event.EntityRenderersEvent;
+import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.fml.common.Mod;
+
+@Mod.EventBusSubscriber(modid = AetherDungeonFix.MODID, bus = Mod.EventBusSubscriber.Bus.MOD, value = Dist.CLIENT)
+// 【已完成·勿改】本类已实机验证通过，逻辑请勿改动；如需调整请先确认影响面。
+public class ClientSetup {
+
+    @SubscribeEvent
+    public static void onRegisterLayers(EntityRenderersEvent.RegisterLayerDefinitions event) {
+        event.registerLayerDefinition(SliderRenderer.LAYER, SliderModel::createBodyLayer);
+    }
+
+    @SubscribeEvent
+    public static void onRegisterRenderers(EntityRenderersEvent.RegisterRenderers event) {
+        event.registerEntityRenderer(ModEntityTypes.SLIDER.get(), SliderRenderer::new);
+    }
+}

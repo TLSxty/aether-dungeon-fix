@@ -1,0 +1,56 @@
+package com.xianmo.aetherfix;
+
+import com.xianmo.aetherfix.world.BronzeDungeonStructure;
+import com.xianmo.aetherfix.world.SilverDungeonStructure;
+import com.xianmo.aetherfix.world.piece.SilverBossRoom;
+import com.xianmo.aetherfix.world.piece.SilverCloudPiece;
+import com.xianmo.aetherfix.world.piece.SilverDungeonRoom;
+import com.xianmo.aetherfix.world.piece.SilverFloorPiece;
+import com.xianmo.aetherfix.world.piece.SilverTemplePiece;
+import net.minecraft.core.Registry;
+import net.minecraft.world.level.levelgen.feature.StructureFeature;
+import net.minecraft.world.level.levelgen.structure.pieces.StructurePieceType;
+import net.minecraftforge.eventbus.api.IEventBus;
+import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
+import net.minecraftforge.registries.DeferredRegister;
+import net.minecraftforge.registries.ForgeRegistries;
+import net.minecraftforge.registries.RegistryObject;
+
+@Mod(AetherDungeonFix.MODID)
+public class AetherDungeonFix {
+    public static final String MODID = "aether_dungeon_fix";
+
+    public static final DeferredRegister<StructureFeature<?>> STRUCTURE_FEATURES =
+            DeferredRegister.create(ForgeRegistries.Keys.STRUCTURE_FEATURES, MODID);
+
+    public static final DeferredRegister<StructurePieceType> PIECE_TYPES =
+            DeferredRegister.create(Registry.STRUCTURE_PIECE_REGISTRY, MODID);
+
+    public static final RegistryObject<StructureFeature<?>> SILVER_DUNGEON =
+            STRUCTURE_FEATURES.register("silver_dungeon", SilverDungeonStructure::new);
+
+    public static final RegistryObject<StructureFeature<?>> BRONZE_DUNGEON =
+            STRUCTURE_FEATURES.register("bronze_dungeon", BronzeDungeonStructure::new);
+
+    public static final RegistryObject<StructurePieceType> SILVER_FLOOR_PIECE =
+            PIECE_TYPES.register("silver_floor", () -> SilverFloorPiece::new);
+
+    public static final RegistryObject<StructurePieceType> SILVER_TEMPLE_PIECE =
+            PIECE_TYPES.register("silver_temple", () -> SilverTemplePiece::new);
+
+    public static final RegistryObject<StructurePieceType> SILVER_ROOM_PIECE =
+            PIECE_TYPES.register("silver_room", () -> SilverDungeonRoom::new);
+
+    public static final RegistryObject<StructurePieceType> SILVER_CLOUD_PIECE =
+            PIECE_TYPES.register("silver_cloud", () -> SilverCloudPiece::new);
+
+    public static final RegistryObject<StructurePieceType> SILVER_BOSS_ROOM =
+            PIECE_TYPES.register("silver_boss_room", () -> SilverBossRoom::new);
+
+    public AetherDungeonFix() {
+        IEventBus bus = FMLJavaModLoadingContext.get().getModEventBus();
+        STRUCTURE_FEATURES.register(bus);
+        PIECE_TYPES.register(bus);
+    }
+}

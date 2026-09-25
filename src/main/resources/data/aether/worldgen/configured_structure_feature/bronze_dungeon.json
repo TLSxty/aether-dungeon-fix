@@ -1,0 +1,10 @@
+{
+  "type": "aether_dungeon_fix:bronze_dungeon",
+  "config": {
+    "start_pool": "aether:bronze_dungeon/start_pool",
+    "size": 7
+  },
+  "biomes": "#aether:has_bronze_dungeon",
+  "spawn_overrides": {},
+  "step": "surface_structures"
+}

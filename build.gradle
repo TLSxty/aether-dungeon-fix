@@ -1,0 +1,100 @@
+buildscript {
+    repositories {
+        maven { url = 'https://maven.aliyun.com/repository/public' }
+        maven { url = 'https://maven.aliyun.com/repository/gradle-plugin' }
+        maven { url = 'https://maven.minecraftforge.net' }
+        mavenCentral()
+    }
+    dependencies {
+        classpath group: 'net.minecraftforge.gradle', name: 'ForgeGradle', version: '5.1.+', changing: true
+    }
+}
+plugins {
+    id 'eclipse'
+    id 'maven-publish'
+}
+apply plugin: 'net.minecraftforge.gradle'
+
+version = '1.0'
+group = 'com.xianmo.aetherfix'
+archivesBaseName = 'aether_dungeon_fix'
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(17)
+
+minecraft {
+    mappings channel: 'official', version: '1.18.2'
+
+    runs {
+        client {
+            workingDirectory project.file('run')
+            property 'forge.logging.markers', 'REGISTRIES'
+            property 'forge.logging.console.level', 'debug'
+            mods {
+                aether_dungeon_fix {
+                    source sourceSets.main
+                }
+            }
+        }
+        server {
+            workingDirectory project.file('run')
+            property 'forge.logging.markers', 'REGISTRIES'
+            property 'forge.logging.console.level', 'debug'
+            mods {
+                aether_dungeon_fix {
+                    source sourceSets.main
+                }
+            }
+        }
+        data {
+            workingDirectory project.file('run')
+            property 'forge.logging.markers', 'REGISTRIES'
+            property 'forge.logging.console.level', 'debug'
+            args '--mod', 'aether_dungeon_fix', '--all', '--output', file('src/generated/resources/'), '--existing', file('src/main/resources/')
+            mods {
+                aether_dungeon_fix {
+                    source sourceSets.main
+                }
+            }
+        }
+    }
+}
+
+sourceSets.main.resources { srcDir 'src/generated/resources' }
+
+repositories {
+    maven { url = 'https://maven.aliyun.com/repository/public' }
+    maven { url = 'https://maven.minecraftforge.net' }
+    maven { url = 'https://libraries.minecraft.net' }
+    flatDir { dir 'libs' }
+}
+
+dependencies {
+    minecraft 'net.minecraftforge:forge:1.18.2-40.2.0'
+
+    // Aether 依赖：当前代码只用原版 API，暂不需要。
+    // 若后续要引用 aether 的方块/实体类，再启用下面两行（会触发 fg.deobf remap，较慢）：
+    // compileOnly fg.deobf('aether:aether:1.18.2-v1.0.0')
+    // runtimeOnly fg.deobf('aether:aether:1.18.2-v1.0.0')
+}
+
+jar {
+    exclude '**/*.bak'
+    exclude '**/*.bak_*'
+    manifest {
+        attributes([
+                "Specification-Title"      : "aether_dungeon_fix",
+                "Specification-Vendor"     : "xianmo",
+                "Specification-Version"    : "1",
+                "Implementation-Title"     : project.name,
+                "Implementation-Version"   : project.jar.archiveVersion,
+                "Implementation-Vendor"    : "xianmo",
+                "Implementation-Timestamp" : new Date().format("yyyy-MM-dd'T'HH:mm:ssZ")
+        ])
+    }
+}
+
+jar.finalizedBy('reobfJar')
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}

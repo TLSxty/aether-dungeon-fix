@@ -1,0 +1,55 @@
+package com.xianmo.aetherfix.world;
+
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.levelgen.GenerationStep;
+import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.level.levelgen.feature.StructureFeature;
+import net.minecraft.world.level.levelgen.feature.configurations.JigsawConfiguration;
+import net.minecraft.world.level.levelgen.structure.PoolElementStructurePiece;
+import net.minecraft.world.level.levelgen.structure.pieces.PieceGenerator;
+import net.minecraft.world.level.levelgen.structure.pieces.PieceGeneratorSupplier;
+import net.minecraft.world.level.levelgen.structure.pools.JigsawPlacement;
+
+import java.util.Optional;
+
+/**
+ * 青铜地牢结构入口。
+ *
+ * 1.18.2 没有通用的 minecraft:jigsaw 结构类型，
+ * 必须像白银一样自己注册一个 StructureFeature，
+ * 内部调用 JigsawPlacement.addPieces 完成拼装。
+ *
+ * 模板与 template_pool 全部复用 1.18.2 本体已有的资产：
+ *   data/aether/structures/bronze_dungeon/*.nbt
+ *   data/aether/worldgen/template_pool/bronze_dungeon/*.json
+ * 本类只负责“把它接进世界生成”。
+ */
+public class BronzeDungeonStructure extends StructureFeature<JigsawConfiguration> {
+
+    public BronzeDungeonStructure() {
+        super(JigsawConfiguration.CODEC, BronzeDungeonStructure::createGenerator);
+    }
+
+    /** 必须覆写，否则父类返回 null 引发 NPE（白银同款坑） */
+    @Override
+    public GenerationStep.Decoration step() {
+        return GenerationStep.Decoration.SURFACE_STRUCTURES;
+    }
+
+    /** 1.18.2 不会自动按 biomes 标签过滤，必须手动调用 */
+    private static Optional<PieceGenerator<JigsawConfiguration>> createGenerator(
+            PieceGeneratorSupplier.Context<JigsawConfiguration> context) {
+        if (!context.validBiomeOnTop(Heightmap.Types.WORLD_SURFACE_WG)) {
+            return Optional.empty();
+        }
+        ChunkPos chunkPos = context.chunkPos();
+        int surfaceY = context.chunkGenerator().getBaseHeight(
+                chunkPos.getMinBlockX(), chunkPos.getMinBlockZ(),
+                Heightmap.Types.WORLD_SURFACE_WG, context.heightAccessor());
+        // 1.19.2 的 aboveBottom=32 语义 -> 从地表往下 32 格作为起点
+        BlockPos startPos = new BlockPos(chunkPos.getMinBlockX(), surfaceY - 32, chunkPos.getMinBlockZ());
+        return JigsawPlacement.addPieces(
+                context, PoolElementStructurePiece::new, startPos, false, false);
+    }
+}

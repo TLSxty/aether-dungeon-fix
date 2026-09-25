@@ -1,0 +1,293 @@
+package com.xianmo.aetherfix.entity;
+
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.TextComponent;
+import net.minecraft.network.syncher.EntityDataAccessor;
+import net.minecraft.network.syncher.EntityDataSerializers;
+import net.minecraft.network.syncher.SynchedEntityData;
+import net.minecraft.server.level.ServerBossEvent;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.BossEvent;
+import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.PathfinderMob;
+import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
+import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.monster.Enemy;
+import com.xianmo.aetherfix.entity.projectile.IceCrystal;
+import com.xianmo.aetherfix.entity.ai.goal.SunSpiritShootGoal;
+import net.minecraft.world.entity.ai.goal.target.NearestAttackableTargetGoal;
+import net.minecraft.world.entity.player.Player;
+import net.minecraftforge.registries.ForgeRegistries;
+import net.minecraft.world.level.Level;
+
+/**
+ * 烈阳巨灵 Sun Spirit —— 黄金地牢 Boss。
+ *
+ * 【B2 Boss 条与战斗状态】参照工程内 SliderEntity 模式：
+ *   extends PathfinderMob implements Enemy, AetherBossMob
+ *   用 ServerBossEvent 实现 Boss 条，setVisible 控制显示。
+ *
+ * 1.18.2 本体无 SunSpirit 实体类（仅有 Model + 贴图），故从零自建。
+ * 属性取值来自 1.19.2 反编译：MAX_HEALTH=500, MOVEMENT_SPEED=0.35。
+ *
+ * 尚未实现（后续步骤）：
+ *   B3 战斗逻辑（isInvulnerableTo / hurt / 冻结机制）；
+ *   B4 攻击系统（冰晶 B4-1a + 火球 + 召唤 FireMinion）；
+ *   B5 渲染；B6 掉落与钥匙；B7 Boss 房生成接入。
+ */
+public class SunSpiritEntity extends PathfinderMob implements Enemy, AetherBossMob {
+
+    /** 冻结状态（B3/B4 冰晶机制）。 */
+    private static final EntityDataAccessor<Boolean> DATA_FROZEN =
+            SynchedEntityData.defineId(SunSpiritEntity.class, EntityDataSerializers.BOOLEAN);
+    /** 冻结剩余时长（tick）。 */
+    private static final EntityDataAccessor<Integer> DATA_FROZEN_DURATION =
+            SynchedEntityData.defineId(SunSpiritEntity.class, EntityDataSerializers.INT);
+    /** Boss 名（AetherBossMob 接口要求）。 */
+    private static final EntityDataAccessor<Component> DATA_BOSS_NAME =
+            SynchedEntityData.defineId(SunSpiritEntity.class, EntityDataSerializers.COMPONENT);
+
+    /** Boss 条（红色，进度样式）。 */
+    private final ServerBossEvent bossFight = new ServerBossEvent(
+            new TextComponent("Sun Spirit"),
+            BossEvent.BossBarColor.RED,
+            BossEvent.BossBarOverlay.PROGRESS);
+
+    /** 台词冷却（B3 使用）。 */
+    private int chatCooldown;
+
+    public SunSpiritEntity(EntityType<? extends SunSpiritEntity> type, Level level) {
+        super(type, level);
+        this.xpReward = 100;
+        this.setBossName(new TextComponent("Sun Spirit"));
+        // 初始不显示 Boss 条，进入战斗后才显示
+        this.bossFight.setVisible(false);
+    }
+
+    @Override
+    protected void registerGoals() {
+        // B4-2：冰晶发射
+        this.goalSelector.addGoal(1, new SunSpiritShootGoal(this));
+        // 索敌
+        this.targetSelector.addGoal(1, new NearestAttackableTargetGoal<>(this, Player.class, false));
+    }
+
+    public static AttributeSupplier.Builder createAttributes() {
+        return Mob.createMobAttributes()
+                .add(Attributes.MAX_HEALTH, 500.0D)
+                .add(Attributes.MOVEMENT_SPEED, 0.35D)
+                .add(Attributes.FOLLOW_RANGE, 64.0D);
+    }
+
+    @Override
+    protected void defineSynchedData() {
+        super.defineSynchedData();
+        this.entityData.define(DATA_FROZEN, false);
+        this.entityData.define(DATA_FROZEN_DURATION, 0);
+        this.entityData.define(DATA_BOSS_NAME, new TextComponent("Sun Spirit"));
+    }
+
+    @Override
+    public void addAdditionalSaveData(CompoundTag tag) {
+        super.addAdditionalSaveData(tag);
+        tag.putBoolean("Frozen", this.isFrozen());
+        tag.putInt("FrozenDuration", this.getFrozenDuration());
+        tag.putBoolean("BossFight", this.isBossFight());
+        tag.putInt("ChatCooldown", this.chatCooldown);
+    }
+
+    @Override
+    public void readAdditionalSaveData(CompoundTag tag) {
+        super.readAdditionalSaveData(tag);
+        this.setFrozen(tag.getBoolean("Frozen"));
+        this.setFrozenDuration(tag.getInt("FrozenDuration"));
+        this.setBossFight(tag.getBoolean("BossFight"));
+        this.chatCooldown = tag.getInt("ChatCooldown");
+        // 区块重载后同步 Boss 条名字
+        if (this.hasCustomName()) {
+            this.bossFight.setName(this.getCustomName());
+        }
+    }
+
+    // ==================== 同步字段访问器 ====================
+
+    public boolean isFrozen() {
+        return this.entityData.get(DATA_FROZEN);
+    }
+
+    public void setFrozen(boolean frozen) {
+        this.entityData.set(DATA_FROZEN, frozen);
+    }
+
+    public int getFrozenDuration() {
+        return this.entityData.get(DATA_FROZEN_DURATION);
+    }
+
+    public void setFrozenDuration(int duration) {
+        this.entityData.set(DATA_FROZEN_DURATION, duration);
+    }
+
+    public int getChatCooldown() {
+        return this.chatCooldown;
+    }
+
+    public void setChatCooldown(int chatCooldown) {
+        this.chatCooldown = chatCooldown;
+    }
+
+    // ==================== B2 Boss 条与战斗状态 ====================
+
+    /** 是否处于 Boss 战（Boss 条是否可见）。 */
+    public boolean isBossFight() {
+        return this.bossFight.isVisible();
+    }
+
+    /** 开关 Boss 战（同时控制 Boss 条显隐）。 */
+    public void setBossFight(boolean active) {
+        this.bossFight.setVisible(active);
+    }
+
+    @Override
+    public void aiStep() {
+        super.aiStep();
+        if (!this.level.isClientSide) {
+            this.bossFight.setProgress(this.getHealth() / this.getMaxHealth());
+        }
+        if (this.chatCooldown > 0) {
+            this.chatCooldown--;
+        }
+        // 冻结倒计时（B3）
+        if (this.getFrozenDuration() > 0) {
+            this.setFrozenDuration(this.getFrozenDuration() - 1);
+        } else if (this.isFrozen()) {
+            this.setFrozen(false);
+        }
+        // 冰晶贴脸检测（B3）
+        if (!this.level.isClientSide) {
+            this.checkIceCrystals();
+        }
+    }
+
+    @Override
+    public void startSeenByPlayer(ServerPlayer player) {
+        super.startSeenByPlayer(player);
+        this.bossFight.addPlayer(player);
+    }
+
+    @Override
+    public void stopSeenByPlayer(ServerPlayer player) {
+        super.stopSeenByPlayer(player);
+        this.bossFight.removePlayer(player);
+    }
+
+    @Override
+    public void die(DamageSource source) {
+        super.die(source);
+        this.bossFight.setProgress(0.0F);
+    }
+
+    @Override
+    public boolean removeWhenFarAway(double dist) {
+        return false;
+    }
+
+    // ==================== B3 战斗逻辑 ====================
+
+    /** 冻结时长常量（1.19.2 原值 175 tick = 8.75 秒）。 */
+    public static final int FROZEN_DURATION_TICKS = 175;
+
+    /**
+     * 免疫规则（对齐 1.19.2）。
+     * - 未冻结：几乎免疫一切，仅【创造模式玩家】与【冰晶】伤害可穿透。
+     * - 已冻结：免疫非生物来源；生物（玩家/怪）可正常造成伤害。
+     */
+    @Override
+    public boolean isInvulnerableTo(DamageSource source) {
+        if (this.isRemoved()) {
+            return true;
+        }
+        // 【后门】/kill 与 bypassInvul 伤害源一律放行（便于调试/清理）
+        if (source.isBypassInvul() || source == DamageSource.OUT_OF_WORLD) {
+            return false;
+        }
+        // 【后门】/kill 与 bypassInvul 伤害源一律放行（便于调试/清理）
+        if (source.isBypassInvul() || source == DamageSource.OUT_OF_WORLD) {
+            return false;
+        }
+        // 冻结期间：允许生物攻击（形成输出窗口）
+        if (this.isFrozen()) {
+            Entity src = source.getEntity();
+            return !(src instanceof LivingEntity) || src instanceof SunSpiritEntity;
+        }
+        // 未冻结：仅创造模式玩家 与 冰晶 可穿透
+        if (source.getEntity() instanceof net.minecraft.world.entity.player.Player player
+                && player.getAbilities().instabuild) {
+            return false;
+        }
+        return !(source.getDirectEntity() instanceof IceCrystal);
+    }
+
+    /**
+     * 受伤处理（对齐 1.19.2）。
+     * 若伤害来源是冰晶 → 冻结 175 tick + 召唤 FireMinion 并令其锁定冰晶投掷者。
+     */
+    @Override
+    public boolean hurt(DamageSource source, float amount) {
+        boolean flag = super.hurt(source, amount);
+        if (!this.level.isClientSide && flag && this.getHealth() > 0.0F) {
+            Entity direct = source.getDirectEntity();
+            Entity attacker = source.getEntity();
+            if (direct instanceof IceCrystal && attacker instanceof LivingEntity livingAttacker) {
+                this.setFrozen(true);
+                this.setFrozenDuration(FROZEN_DURATION_TICKS);
+                this.spawnFireMinion(livingAttacker);
+            }
+        }
+        return flag;
+    }
+
+    /** 召唤一只 FireMinion（1.18.2 本体已有实体），令其锁定指定目标。 */
+    private void spawnFireMinion(LivingEntity target) {
+        EntityType<?> type = ForgeRegistries.ENTITIES.getValue(
+                new ResourceLocation("aether", "fire_minion"));
+        if (type == null) {
+            return;
+        }
+        Entity minion = type.create(this.level);
+        if (minion == null) {
+            return;
+        }
+        minion.moveTo(this.getX(), this.getY(), this.getZ(), 0.0F, 0.0F);
+        if (minion instanceof Mob mob) {
+            mob.setTarget(target);
+        }
+        this.level.addFreshEntity(minion);
+    }
+
+    /** 检测贴身的冰晶，令其对自身造成伤害（进而触发冻结）。 */
+    private void checkIceCrystals() {
+        for (IceCrystal crystal : this.level.getEntitiesOfClass(
+                IceCrystal.class, this.getBoundingBox().inflate(0.1))) {
+            crystal.doDamage(this);
+        }
+    }
+
+    // ==================== AetherBossMob ====================
+
+    @Override
+    public Component getBossName() {
+        return this.entityData.get(DATA_BOSS_NAME);
+    }
+
+    @Override
+    public void setBossName(Component name) {
+        this.entityData.set(DATA_BOSS_NAME, name);
+        this.bossFight.setName(name);
+    }
+}

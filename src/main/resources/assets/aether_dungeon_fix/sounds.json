@@ -1,0 +1,10 @@
+{
+  "music.boss.sun_spirit": {
+    "sounds": [
+      {
+        "name": "aether_dungeon_fix:music/boss/sun_spirit_fight",
+        "stream": true
+      }
+    ]
+  }
+}

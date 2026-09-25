@@ -1,0 +1,132 @@
+package com.xianmo.aetherfix.entity;
+
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.TextComponent;
+import net.minecraft.network.syncher.EntityDataAccessor;
+import net.minecraft.network.syncher.EntityDataSerializers;
+import net.minecraft.network.syncher.SynchedEntityData;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.PathfinderMob;
+import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
+import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.monster.Enemy;
+import net.minecraft.world.level.Level;
+
+/**
+ * 烈阳巨灵 Sun Spirit —— 黄金地牢 Boss。
+ *
+ * 【B1-2 骨架版】参照工程内 SliderEntity 的模式：
+ *   extends PathfinderMob implements Enemy, AetherBossMob
+ *
+ * 1.18.2 本体无 SunSpirit 实体类（仅有 Model + 贴图），故从零自建。
+ * 属性取值来自 1.19.2 反编译：MAX_HEALTH=500, MOVEMENT_SPEED=0.35（无攻击力属性，
+ * 因其攻击靠火球/技能而非近战）。
+ *
+ * 尚未实现（后续步骤）：
+ *   B2 Boss 条与战斗状态；B3 五个 AI Goal；B4 冰晶弹幕（B4-1a 自建 IceCrystal）；
+ *   B5 渲染；B6 掉落与钥匙；B7 Boss 房生成接入。
+ */
+public class SunSpiritEntity extends PathfinderMob implements Enemy, AetherBossMob {
+
+    /** 冻结状态（B4 冰晶机制）。 */
+    private static final EntityDataAccessor<Boolean> DATA_FROZEN =
+            SynchedEntityData.defineId(SunSpiritEntity.class, EntityDataSerializers.BOOLEAN);
+    /** 冻结剩余时长（tick）。 */
+    private static final EntityDataAccessor<Integer> DATA_FROZEN_DURATION =
+            SynchedEntityData.defineId(SunSpiritEntity.class, EntityDataSerializers.INT);
+    /** Boss 名（AetherBossMob 接口要求）。 */
+    private static final EntityDataAccessor<Component> DATA_BOSS_NAME =
+            SynchedEntityData.defineId(SunSpiritEntity.class, EntityDataSerializers.COMPONENT);
+
+    /** 是否已进入战斗（B2 使用）。 */
+    private boolean bossFight;
+    /** 台词冷却（B3 使用）。 */
+    private int chatCooldown;
+
+    public SunSpiritEntity(EntityType<? extends SunSpiritEntity> type, Level level) {
+        super(type, level);
+        this.xpReward = 100;
+        this.setBossName(new TextComponent("Sun Spirit"));
+    }
+
+    public static AttributeSupplier.Builder createAttributes() {
+        return Mob.createMobAttributes()
+                .add(Attributes.MAX_HEALTH, 500.0D)
+                .add(Attributes.MOVEMENT_SPEED, 0.35D)
+                .add(Attributes.FOLLOW_RANGE, 64.0D);
+    }
+
+    @Override
+    protected void defineSynchedData() {
+        super.defineSynchedData();
+        this.entityData.define(DATA_FROZEN, false);
+        this.entityData.define(DATA_FROZEN_DURATION, 0);
+        this.entityData.define(DATA_BOSS_NAME, new TextComponent("Sun Spirit"));
+    }
+
+    @Override
+    public void addAdditionalSaveData(CompoundTag tag) {
+        super.addAdditionalSaveData(tag);
+        tag.putBoolean("Frozen", this.isFrozen());
+        tag.putInt("FrozenDuration", this.getFrozenDuration());
+        tag.putBoolean("BossFight", this.bossFight);
+        tag.putInt("ChatCooldown", this.chatCooldown);
+    }
+
+    @Override
+    public void readAdditionalSaveData(CompoundTag tag) {
+        super.readAdditionalSaveData(tag);
+        this.setFrozen(tag.getBoolean("Frozen"));
+        this.setFrozenDuration(tag.getInt("FrozenDuration"));
+        this.bossFight = tag.getBoolean("BossFight");
+        this.chatCooldown = tag.getInt("ChatCooldown");
+    }
+
+    // ==================== 同步字段访问器 ====================
+
+    public boolean isFrozen() {
+        return this.entityData.get(DATA_FROZEN);
+    }
+
+    public void setFrozen(boolean frozen) {
+        this.entityData.set(DATA_FROZEN, frozen);
+    }
+
+    public int getFrozenDuration() {
+        return this.entityData.get(DATA_FROZEN_DURATION);
+    }
+
+    public void setFrozenDuration(int duration) {
+        this.entityData.set(DATA_FROZEN_DURATION, duration);
+    }
+
+    public boolean isBossFight() {
+        return this.bossFight;
+    }
+
+    public void setBossFight(boolean bossFight) {
+        this.bossFight = bossFight;
+    }
+
+    public int getChatCooldown() {
+        return this.chatCooldown;
+    }
+
+    public void setChatCooldown(int chatCooldown) {
+        this.chatCooldown = chatCooldown;
+    }
+
+    // ==================== AetherBossMob ====================
+
+    @Override
+    public Component getBossName() {
+        return this.entityData.get(DATA_BOSS_NAME);
+    }
+
+    @Override
+    public void setBossName(Component name) {
+        this.entityData.set(DATA_BOSS_NAME, name);
+    }
+}

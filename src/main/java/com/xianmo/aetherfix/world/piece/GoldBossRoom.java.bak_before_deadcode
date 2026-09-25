@@ -1,0 +1,103 @@
+package com.xianmo.aetherfix.world.piece;
+
+import com.xianmo.aetherfix.AetherDungeonFix;
+import net.minecraft.core.BlockPos;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.NbtIo;
+import net.minecraft.nbt.NbtUtils;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.level.ServerLevelAccessor;
+import net.minecraft.world.level.WorldGenLevel;
+import net.minecraft.world.level.StructureFeatureManager;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.Rotation;
+import net.minecraft.world.level.block.entity.RandomizableContainerBlockEntity;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.chunk.ChunkGenerator;
+import net.minecraft.world.level.levelgen.structure.BoundingBox;
+import net.minecraft.world.level.levelgen.structure.pieces.StructurePieceSerializationContext;
+import net.minecraft.world.level.levelgen.structure.templatesystem.StructureManager;
+import net.minecraft.world.level.levelgen.structure.templatesystem.StructurePlaceSettings;
+
+import java.io.InputStream;
+import java.util.Random;
+
+/**
+ * 黄金地牢 Boss 房。
+ *
+ * 【2026-09-24 最终方案】StructureTemplate 模板放置路径整体失效（墙/地板/天花板/宝箱均未出现），
+ * 改为【手动读 nbt 逐块重建】：
+ *   1. 从 classpath 读 boss_room_fix.nbt
+ *   2. 解析 palette 与 blocks
+ *   3. 世界坐标 = bbox.min + 局部坐标（Rotation.NONE 下 bbox.min == 构造 pos，已验证）
+ *   4. level.setBlock 逐块写入，包含 air（自带挖空）
+ */
+public class GoldBossRoom extends GoldDungeonPiece {
+
+    private static final String TEMPLATE_PATH = "data/aether/structures/gold_dungeon/boss_room_fix.nbt";
+
+    public GoldBossRoom(StructureManager manager, String name, BlockPos pos, Rotation rotation) {
+        super(AetherDungeonFix.GOLD_BOSS_ROOM.get(), manager, name,
+              new StructurePlaceSettings().setRotation(rotation), pos);
+        this.setOrientation(rotation.rotate(net.minecraft.core.Direction.SOUTH));
+    }
+
+    public GoldBossRoom(StructurePieceSerializationContext context, CompoundTag tag) {
+        super(AetherDungeonFix.GOLD_BOSS_ROOM.get(), tag, context.structureManager(),
+              location -> settingsFromTag(tag));
+    }
+
+    @Override
+    public void postProcess(WorldGenLevel level, StructureFeatureManager manager, ChunkGenerator gen,
+                            Random random, BoundingBox box, net.minecraft.world.level.ChunkPos chunkPos,
+                            BlockPos pos) {
+        // 不调 super：模板放置路径已知失效，完全改为手动重建
+        BoundingBox bb = this.getBoundingBox();
+        int minX = bb.minX(), minY = bb.minY(), minZ = bb.minZ();
+
+        int placed = 0, carved = 0, skipped = 0;
+        try (InputStream in = getClass().getClassLoader().getResourceAsStream(TEMPLATE_PATH)) {
+            if (in == null) {
+                return;
+            }
+            CompoundTag root = NbtIo.readCompressed(in);
+            ListTag paletteTag = root.getList("palette", 10);
+            BlockState[] palette = new BlockState[paletteTag.size()];
+            for (int i = 0; i < paletteTag.size(); i++) {
+                palette[i] = NbtUtils.readBlockState(paletteTag.getCompound(i));
+            }
+            ListTag blocksTag = root.getList("blocks", 10);
+            BlockPos.MutableBlockPos mp = new BlockPos.MutableBlockPos();
+            for (int i = 0; i < blocksTag.size(); i++) {
+                CompoundTag b = blocksTag.getCompound(i);
+                ListTag p = b.getList("pos", 3);
+                int lx = p.getInt(0), ly = p.getInt(1), lz = p.getInt(2);
+                int stateIdx = b.getInt("state");
+                if (stateIdx < 0 || stateIdx >= palette.length) { skipped++; continue; }
+                BlockState st = palette[stateIdx];
+                int wx = minX + lx, wy = minY + ly, wz = minZ + lz;
+                mp.set(wx, wy, wz);
+                if (!box.isInside(mp)) { skipped++; continue; }
+                if (level.setBlock(mp, st, 2)) {
+                    placed++;
+                    if (st.isAir()) carved++;
+                } else {
+                    skipped++;
+                }
+            }
+        } catch (Throwable t) {
+            return;
+        }
+    }
+
+    @Override
+    protected void handleDataMarker(String marker, BlockPos pos, ServerLevelAccessor level,
+                                    Random random, BoundingBox box) {
+        if (marker.equals("Treasure Chest")) {
+            RandomizableContainerBlockEntity.setLootTable(level, random, pos.below(),
+                    new ResourceLocation("aether", "chests/dungeon/gold/gold_dungeon_reward"));
+            level.setBlock(pos, Blocks.AIR.defaultBlockState(), 2);
+        }
+    }
+}

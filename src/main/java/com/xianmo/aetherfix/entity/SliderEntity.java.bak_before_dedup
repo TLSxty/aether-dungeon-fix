@@ -1,0 +1,270 @@
+package com.xianmo.aetherfix.entity;
+
+import net.minecraft.core.Direction;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.TextComponent;
+import net.minecraft.network.syncher.EntityDataAccessor;
+import net.minecraft.network.syncher.EntityDataSerializers;
+import net.minecraft.network.syncher.SynchedEntityData;
+import net.minecraft.server.level.ServerBossEvent;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.BossEvent;
+import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.PathfinderMob;
+import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
+import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.ai.control.MoveControl;
+import net.minecraft.world.entity.monster.Enemy;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.Vec3;
+
+/**
+ * Slider 实体。S2：服务端逻辑（速度公式 / 方向计算 / 冷却 / 置空寻路）。
+ * AI Goal 在 S3 挂接；方块转换表在 S3 处理（1.18.2 缺 BOSS/TREASURE_DOORWAY 源方块）。
+ */
+public class SliderEntity extends PathfinderMob implements Enemy, AetherBossMob {
+
+    /** getMaxVelocity：滚动速度上限。 */
+    public static final float MAX_VELOCITY = 2.5F;
+    /** isCritical 阈值：血量 <= 100 进入狂暴。 */
+    public static final float CRITICAL_HEALTH = 100.0F;
+
+    private static final EntityDataAccessor<Boolean> DATA_AWAKE_ID =
+            SynchedEntityData.defineId(SliderEntity.class, EntityDataSerializers.BOOLEAN);
+    private static final EntityDataAccessor<Component> DATA_BOSS_NAME_ID =
+            SynchedEntityData.defineId(SliderEntity.class, EntityDataSerializers.COMPONENT);
+    private static final EntityDataAccessor<Float> DATA_HURT_ANGLE_ID =
+            SynchedEntityData.defineId(SliderEntity.class, EntityDataSerializers.FLOAT);
+    private static final EntityDataAccessor<Float> DATA_HURT_ANGLE_X_ID =
+            SynchedEntityData.defineId(SliderEntity.class, EntityDataSerializers.FLOAT);
+    private static final EntityDataAccessor<Float> DATA_HURT_ANGLE_Z_ID =
+            SynchedEntityData.defineId(SliderEntity.class, EntityDataSerializers.FLOAT);
+
+    private final ServerBossEvent bossFight = new ServerBossEvent(
+            new TextComponent("Slider"), BossEvent.BossBarColor.RED, BossEvent.BossBarOverlay.PROGRESS);
+
+    private int chatCooldown;
+    private Direction moveDirection;
+    private int moveDelay;
+    private Vec3 targetPoint;
+    private int attackCooldown;
+
+    public SliderEntity(EntityType<? extends SliderEntity> type, Level level) {
+        super(type, level);
+        this.xpReward = 50;
+        this.moveDirection = null;
+        this.moveDelay = this.calculateMoveDelay();
+        this.targetPoint = null;
+        this.attackCooldown = 0;
+        // 禁用原版寻路：滑块靠自定义速度滚动，而非 PathNavigation
+        this.moveControl = new BlankMoveControl(this);
+        this.bossFight.setVisible(false);
+    }
+
+    @Override
+    protected void defineSynchedData() {
+        super.defineSynchedData();
+        this.entityData.define(DATA_AWAKE_ID, false);
+        this.entityData.define(DATA_BOSS_NAME_ID, new TextComponent("Slider"));
+        this.entityData.define(DATA_HURT_ANGLE_ID, 0.0F);
+        this.entityData.define(DATA_HURT_ANGLE_X_ID, 0.0F);
+        this.entityData.define(DATA_HURT_ANGLE_Z_ID, 0.0F);
+    }
+
+    public static AttributeSupplier.Builder createAttributes() {
+        return PathfinderMob.createMobAttributes()
+                .add(Attributes.MAX_HEALTH, 400.0D)
+                .add(Attributes.FOLLOW_RANGE, 64.0D);
+    }
+
+    // ==================== S2 服务端逻辑 ====================
+
+    /** 血量 <= 100 判定为狂暴（critical）档。 */
+    public boolean isCritical() {
+        return this.getHealth() <= CRITICAL_HEALTH;
+    }
+
+    /** 滚动速度上限。 */
+    public float getMaxVelocity() {
+        return MAX_VELOCITY;
+    }
+
+    /** 每次加速的增量：狂暴时加速更快。 */
+    public float getVelocityIncrease() {
+        return this.isCritical()
+                ? 0.045F - this.getHealth() / 10000.0F
+                : 0.035F - this.getHealth() / 30000.0F;
+    }
+
+    /** 一次移动后的冷却刻：狂暴时更短（更频繁移动）。 */
+    public int calculateMoveDelay() {
+        return this.isCritical()
+                ? 1 + this.random.nextInt(10)
+                : 2 + this.random.nextInt(14);
+    }
+
+    /** 按位移各轴最大分量决定移动方向（Y 轴优先，其次 X，最后 Z）。 */
+    public static Direction calculateDirection(double dx, double dy, double dz) {
+        double ax = Math.abs(dx);
+        double ay = Math.abs(dy);
+        double az = Math.abs(dz);
+        if (ay > ax && ay > az) {
+            return dy > 0.0D ? Direction.UP : Direction.DOWN;
+        } else if (ax > az) {
+            return dx > 0.0D ? Direction.EAST : Direction.WEST;
+        } else {
+            return dz > 0.0D ? Direction.SOUTH : Direction.NORTH;
+        }
+    }
+
+    /** 目标点：已有则复用，否则取当前攻击目标位置。 */
+    public Vec3 findTargetPoint() {
+        if (this.targetPoint != null) {
+            return this.targetPoint;
+        }
+        return this.getTarget() == null ? null : this.getTarget().position();
+    }
+
+    /** 置空寻路控制器：所有 tick 行为为空，速度完全由 Goal 直接 setDeltaMovement 驱动。 */
+    public static class BlankMoveControl extends MoveControl {
+        public BlankMoveControl(Mob mob) {
+            super(mob);
+        }
+
+        @Override
+        public void tick() {
+            // 故意留空
+        }
+    }
+
+    // ==================== 同步字段访问器 ====================
+    public boolean isAwake() { return this.entityData.get(DATA_AWAKE_ID); }
+    public void setAwake(boolean awake) { this.entityData.set(DATA_AWAKE_ID, awake); }
+
+    @Override
+    public Component getBossName() { return this.entityData.get(DATA_BOSS_NAME_ID); }
+
+    @Override
+    public void setBossName(Component name) {
+        this.entityData.set(DATA_BOSS_NAME_ID, name);
+        this.bossFight.setName(name);
+    }
+
+    public float getHurtAngle() { return this.entityData.get(DATA_HURT_ANGLE_ID); }
+    public void setHurtAngle(float v) { this.entityData.set(DATA_HURT_ANGLE_ID, v); }
+    public float getHurtAngleX() { return this.entityData.get(DATA_HURT_ANGLE_X_ID); }
+    public void setHurtAngleX(float v) { this.entityData.set(DATA_HURT_ANGLE_X_ID, v); }
+    public float getHurtAngleZ() { return this.entityData.get(DATA_HURT_ANGLE_Z_ID); }
+    public void setHurtAngleZ(float v) { this.entityData.set(DATA_HURT_ANGLE_Z_ID, v); }
+
+    public Direction getMoveDirection() { return this.moveDirection; }
+    public void setMoveDirection(Direction d) { this.moveDirection = d; }
+    public int getMoveDelay() { return this.moveDelay; }
+    public void setMoveDelay(int v) { this.moveDelay = v; }
+    public Vec3 getTargetPoint() { return this.targetPoint; }
+    public void setTargetPoint(Vec3 v) { this.targetPoint = v; }
+    public int attackCooldown() { return this.attackCooldown; }
+    public void setAttackCooldown(int v) { this.attackCooldown = v; }
+    // ---- Boss 战开关（1.18.2 无 AetherBossMob，自建）----
+    public boolean isBossFight() { return this.bossFight.isVisible(); }
+
+    public void setBossFight(boolean active) { this.bossFight.setVisible(active); }
+
+    public int getChatCooldown() { return this.chatCooldown; }
+    public void setChatCooldown(int v) { this.chatCooldown = v; }
+
+    // ==================== 生命周期 ====================
+
+    @Override
+    public void addAdditionalSaveData(CompoundTag tag) {
+        super.addAdditionalSaveData(tag);
+        tag.putBoolean("Awake", this.isAwake());
+        tag.putInt("MoveDelay", this.moveDelay);
+        tag.putInt("AttackCooldown", this.attackCooldown);
+        tag.putInt("ChatCooldown", this.chatCooldown);
+    }
+
+    @Override
+    public void readAdditionalSaveData(CompoundTag tag) {
+        super.readAdditionalSaveData(tag);
+        this.setAwake(tag.getBoolean("Awake"));
+        this.moveDelay = tag.getInt("MoveDelay");
+        this.attackCooldown = tag.getInt("AttackCooldown");
+        this.chatCooldown = tag.getInt("ChatCooldown");
+    }
+
+    @Override
+    public void aiStep() {
+        super.aiStep();
+        if (!this.level.isClientSide) {
+            this.bossFight.setProgress(this.getHealth() / this.getMaxHealth());
+        }
+        if (this.moveDelay > 0) {
+            this.moveDelay--;
+        }
+        if (this.attackCooldown > 0) {
+            this.attackCooldown--;
+        }
+        if (this.chatCooldown > 0) {
+            this.chatCooldown--;
+        }
+        // 目标失效或死亡时清空目标点
+        if (this.getTarget() != null && !this.getTarget().isAlive()) {
+            this.setTarget(null);
+            this.setTargetPoint(null);
+        }
+    }
+
+    /** 唤醒并开启 Boss 战。 */
+    public void start() {
+        if (!this.level.isClientSide) {
+            this.setHealth(this.getMaxHealth());
+            this.setAwake(true);
+            this.setBossFight(true);
+        }
+    }
+
+    /** 复位：清空速度、休眠、关闭血条、清目标。 */
+    public void reset() {
+        this.setDeltaMovement(Vec3.ZERO);
+        this.setAwake(false);
+        this.setBossFight(false);
+        this.setTarget(null);
+    }
+
+    @Override
+    public void startSeenByPlayer(ServerPlayer player) {
+        super.startSeenByPlayer(player);
+        this.bossFight.addPlayer(player);
+    }
+
+    @Override
+    public void stopSeenByPlayer(ServerPlayer player) {
+        super.stopSeenByPlayer(player);
+        this.bossFight.removePlayer(player);
+    }
+
+    @Override
+    public boolean hurt(DamageSource source, float amount) {
+        boolean hurt = super.hurt(source, amount);
+        if (hurt && !this.isAwake()) {
+            this.start();
+        }
+        return hurt;
+    }
+
+    @Override
+    public void die(DamageSource source) {
+        super.die(source);
+        this.bossFight.setProgress(0.0F);
+    }
+
+    @Override
+    public boolean removeWhenFarAway(double dist) { return false; }
+
+    @Override
+    public boolean canChangeDimensions() { return false; }
+}

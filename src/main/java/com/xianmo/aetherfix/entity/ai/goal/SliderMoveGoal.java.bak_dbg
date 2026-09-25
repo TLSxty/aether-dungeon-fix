@@ -1,0 +1,118 @@
+package com.xianmo.aetherfix.entity.ai.goal;
+
+import com.xianmo.aetherfix.entity.SliderEntity;
+import net.minecraft.core.Direction;
+import net.minecraft.world.entity.ai.goal.Goal;
+import net.minecraft.world.phys.Vec3;
+
+import java.util.EnumSet;
+
+/**
+ * S3a 滑块移动 Goal。逻辑照搬 1.19.2 SliderMoveGoal。
+ * 差异：1.18.2 无 ENTITY_SLIDER_MOVE 音效，故省略 start() 的音效播放（S4/S5 再补）。
+ * 当前带完整调试输出，写入 D:/slider_debug.txt。
+ */
+public class SliderMoveGoal extends Goal {
+
+    private final SliderEntity slider;
+    private Vec3 targetPoint;
+    private float velocity;
+    private int dbgCd;
+
+    public SliderMoveGoal(SliderEntity slider) {
+        this.slider = slider;
+        this.setFlags(EnumSet.of(Goal.Flag.MOVE));
+    }
+
+    @Override
+    public boolean canUse() {
+        boolean base = this.slider.isAwake() && !this.slider.isNoAi() && this.slider.getMoveDelay() <= 0;
+        if (!base) {
+            return false;
+        }
+        this.targetPoint = this.slider.findTargetPoint();
+        boolean res = this.targetPoint != null;
+        SliderEntity.dbg("[canUse] base=true targetPoint=" + this.targetPoint + " res=" + res);
+        return res;
+    }
+
+    @Override
+    public boolean canContinueToUse() {
+        boolean c1 = this.slider.isAwake();
+        boolean c2 = !this.slider.isNoAi();
+        boolean c3 = this.slider.getMoveDelay() <= 0;
+        boolean c4 = !this.slider.horizontalCollision;
+        boolean c5 = !this.slider.verticalCollision;
+        boolean res = c1 && c2 && c3 && c4 && c5;
+        SliderEntity.dbg("[canContinue] awake=" + c1 + " noAi=" + c2 + " delayOK=" + c3
+                + " hCollOK=" + c4 + " vCollOK=" + c5 + " => " + res);
+        return res;
+    }
+
+    @Override
+    public void start() {
+        this.slider.setMoveDirection(null);
+        SliderEntity.dbg("[start] moveDirection reset");
+    }
+
+    @Override
+    public void tick() {
+        if (this.targetPoint == null) {
+            this.stop();
+            return;
+        }
+        Direction direction = getMoveDirection(this.slider, this.targetPoint);
+        double ad = axisDistance(this.targetPoint, this.slider.position(), direction);
+        if (ad <= 0.0D) {
+            SliderEntity.dbg("[tick] axisDistance=" + ad + " <=0 => stop");
+            this.stop();
+            return;
+        }
+        if (this.velocity < this.slider.getMaxVelocity()) {
+            this.velocity = Math.min(this.slider.getMaxVelocity(),
+                    this.velocity + this.slider.getVelocityIncrease());
+        }
+        this.slider.setDeltaMovement(new Vec3(
+                direction.getStepX() * this.velocity,
+                direction.getStepY() * this.velocity,
+                direction.getStepZ() * this.velocity));
+        if (++this.dbgCd % 10 == 0) {
+            SliderEntity.dbg("[tick] dir=" + direction + " vel=" + this.velocity
+                    + " axisDist=" + ad + " dMove=" + this.slider.getDeltaMovement().length());
+        }
+    }
+
+    @Override
+    public void stop() {
+        this.slider.setMoveDelay(this.slider.calculateMoveDelay());
+        this.slider.setTargetPoint(null);
+        this.targetPoint = null;
+        this.velocity = 0.0F;
+        this.slider.setDeltaMovement(Vec3.ZERO);
+        SliderEntity.dbg("[stop] newMoveDelay=" + this.slider.getMoveDelay());
+    }
+
+    @Override
+    public boolean isInterruptable() {
+        return true;
+    }
+
+    private static Direction getMoveDirection(SliderEntity slider, Vec3 targetPoint) {
+        Direction direction = slider.getMoveDirection();
+        if (direction == null) {
+            double dx = targetPoint.x - slider.getX();
+            double dy = targetPoint.y - slider.getY();
+            double dz = targetPoint.z - slider.getZ();
+            direction = SliderEntity.calculateDirection(dx, dy, dz);
+            slider.setMoveDirection(direction);
+        }
+        return direction;
+    }
+
+    private static double axisDistance(Vec3 a, Vec3 b, Direction direction) {
+        double dx = a.x - b.x;
+        double dy = a.y - b.y;
+        double dz = a.z - b.z;
+        return dx * direction.getStepX() + dy * direction.getStepY() + dz * direction.getStepZ();
+    }
+}

@@ -1,0 +1,27 @@
+package com.xianmo.aetherfix.entity;
+
+import com.xianmo.aetherfix.AetherDungeonFix;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.MobCategory;
+import net.minecraftforge.event.entity.EntityAttributeCreationEvent;
+import net.minecraftforge.registries.DeferredRegister;
+import net.minecraftforge.registries.ForgeRegistries;
+import net.minecraftforge.registries.RegistryObject;
+
+// 【已完成·勿改】本类已实机验证通过，逻辑请勿改动；如需调整请先确认影响面。
+public class ModEntityTypes {
+
+    public static final DeferredRegister<EntityType<?>> ENTITY_TYPES =
+            DeferredRegister.create(ForgeRegistries.ENTITIES, AetherDungeonFix.MODID);
+
+    public static final RegistryObject<EntityType<SliderEntity>> SLIDER =
+            ENTITY_TYPES.register("slider", () -> EntityType.Builder
+                    .of(SliderEntity::new, MobCategory.MONSTER)
+                    .sized(2.0F, 2.0F)
+                    .clientTrackingRange(10)
+                    .build(AetherDungeonFix.MODID + ":slider"));
+
+    public static void onAttributeCreation(EntityAttributeCreationEvent event) {
+        event.put(SLIDER.get(), SliderEntity.createAttributes().build());
+    }
+}
