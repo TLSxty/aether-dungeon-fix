@@ -33,6 +33,13 @@ import java.util.Optional;
  */
 public class BronzeDungeonStructure extends StructureFeature<JigsawConfiguration> {
 
+    /** 【VOID-FIX】连续多少格空气视为「已越出空岛底部」（空岛体内空心极罕见）。 */
+    private static final int VOID_GAP = 8;
+    /** 【VOID-FIX】起点相对岛顶的深度：把起点放在地表下方 DUNGEON_DEPTH 格处，便于地牢生长。 */
+    private static final int DUNGEON_DEPTH = 16;
+    /** 【VOID-FIX】要求空岛体至少比地牢底多出 MIN_ISLAND_MARGIN 格，不够厚的薄岛直接跳过。 */
+    private static final int MIN_ISLAND_MARGIN = 8;
+
     public BronzeDungeonStructure() {
         super(JigsawConfiguration.CODEC, BronzeDungeonStructure::createGenerator);
     }
@@ -64,8 +71,22 @@ public class BronzeDungeonStructure extends StructureFeature<JigsawConfiguration
             return Optional.empty();
         }
 
-        // 【勿改】1.19.2 的 aboveBottom=32 语义 -> 从地表往下 32 格作为起点
-        BlockPos startPos = new BlockPos(chunkPos.getMinBlockX(), surfaceY - 32, chunkPos.getMinBlockZ());
+        // 【VOID-FIX·抬进空岛】测量结构中心列的空岛厚度，薄岛/空心直接跳过。
+        int centerX = chunkPos.getMiddleBlockX();
+        int centerZ = chunkPos.getMiddleBlockZ();
+        int islandFloorY = scanIslandFloor(context, centerX, centerZ, surfaceY);
+        if (islandFloorY == Integer.MIN_VALUE) {
+            return Optional.empty();
+        }
+        int islandThickness = surfaceY - islandFloorY;
+        if (islandThickness < DUNGEON_DEPTH + MIN_ISLAND_MARGIN) {
+            // 空岛太薄，装不下地牢 -> 跳过，不生成悬空地牢。
+            return Optional.empty();
+        }
+
+        // 起点放在地表下方 DUNGEON_DEPTH 格处，地牢主体在岛体内生长。
+        int startY = surfaceY - DUNGEON_DEPTH;
+        BlockPos startPos = new BlockPos(chunkPos.getMinBlockX(), startY, chunkPos.getMinBlockZ());
 
         Optional<PieceGenerator<JigsawConfiguration>> base =
                 JigsawPlacement.addPieces(context, PoolElementStructurePiece::new, startPos, false, false);
@@ -85,6 +106,33 @@ public class BronzeDungeonStructure extends StructureFeature<JigsawConfiguration
                 // 登记失败不影响结构本身生成
             }
         });
+    }
+
+    /**
+     * 【VOID-FIX·空岛底界】在指定列从表面向下扫描，返回空岛底部最后一块实心方块的 Y
+     * （也是常规生成的下边界）。一旦遇到连续 >=VOID_GAP 格的空气，即认定已穿过岛底落到虚空，
+     * 返回 MIN_VALUE 让调用方放弃生成。
+     */
+    private static int scanIslandFloor(PieceGeneratorSupplier.Context<JigsawConfiguration> context,
+                                       int x, int z, int surfaceY) {
+        LevelHeightAccessor ha = context.heightAccessor();
+        int minY = ha.getMinBuildHeight();
+        NoiseColumn col = context.chunkGenerator().getBaseColumn(x, z, ha);
+        int lastSolid = Integer.MIN_VALUE;
+        int airRun = 0;
+        for (int y = surfaceY; y > minY; y--) {
+            if (!col.getBlock(y).isAir()) {
+                lastSolid = y;
+                airRun = 0;
+            } else {
+                airRun++;
+                // 空岛体内空心极罕见；连续 VOID_GAP 格空气 => 岛底之下的虚空。
+                if (airRun >= VOID_GAP) {
+                    return lastSolid;
+                }
+            }
+        }
+        return lastSolid;
     }
 
     /**

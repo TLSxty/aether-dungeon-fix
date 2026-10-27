@@ -160,13 +160,16 @@ public class SilverDungeonBuilder {
      *   宝箱房 ：bp.offset(3, 0, 3)
      *
      * 改动任一处都会导致墙地错位、缺墙或内容物飞出骨架，请先核对技术文档第八章。
+     *
+     * @return 各可刷怪网格房间的地板中心点（排除楼梯/屋顶等不可刷怪处）。用于把白银地牢守卫女武神分散到全地牢。
      */
-    public void assembleDungeon(StructurePiecesBuilder builder, StructureManager templateManager,
+    public List<BlockPos> assembleDungeon(StructurePiecesBuilder builder, StructureManager templateManager,
                             BlockPos startPos, Rotation rotation, Direction direction) {
         BlockPos origin = startPos.offset(
                 direction.getStepZ() * 5 - direction.getStepX(),
                 FLOOR_HEIGHT,
                 -direction.getStepX() * 5 - direction.getStepZ());
+        List<BlockPos> spawnPoints = new ArrayList<>();
         Rotation sideways = rotation.getRotated(Rotation.CLOCKWISE_90);
         for (int y = this.height - 1; y >= 0; --y) {
             int baseY = origin.getY() + y * FLOOR_HEIGHT;
@@ -201,11 +204,14 @@ public class SilverDungeonBuilder {
                         builder.addPiece(new SilverDungeonRoom(templateManager, "staircase", bp.offset(2, 0, 2), rotation));
                         continue;
                     }
+                    // 普通房与宝箱房均可作为女武神分散刷怪点（房间地板中心，y 上移一格为站立位）
+                    spawnPoints.add(new BlockPos(bp.getX(), bp.getY() + 1, bp.getZ()));
                     if ((room & CHEST_ROOM) == CHEST_ROOM) {
                         builder.addPiece(new SilverDungeonRoom(templateManager, "chest_room", bp.offset(3, 0, 3), rotation));
                     }
                 }
             }
         }
+        return spawnPoints;
     }
 }

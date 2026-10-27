@@ -8,7 +8,7 @@ import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.util.Mth;
 import net.minecraft.world.damagesource.DamageSource;
-import net.minecraft.world.damagesource.EntityDamageSource;
+import net.minecraft.world.damagesource.IndirectEntityDamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
@@ -57,8 +57,11 @@ public class FireCrystal extends AbstractCrystal {
             return;
         }
         if (target instanceof LivingEntity living) {
+            // 【崩溃修复】原为 EntityDamageSource(.., this)，getEntity() 返回火晶(非 LivingEntity)，
+            // 会被 celestial_artifacts 的 AttributeEvent 无条件 checkcast LivingEntity 崩掉。
+            // 改为 IndirectEntityDamageSource，让 getEntity() 返回真正的 owner（LivingEntity）。
             Entity owner = this.getOwner();
-            DamageSource source = new EntityDamageSource("aether_fire_crystal", this).setIsFire();
+            DamageSource source = new IndirectEntityDamageSource("aether_fire_crystal", this, owner).setIsFire();
             if (living.hurt(source, 15.0F)) {
                 living.setSecondsOnFire(6);
                 this.spawnExplosionParticles();

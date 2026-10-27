@@ -7,6 +7,7 @@ buildscript {
     }
     dependencies {
         classpath group: 'net.minecraftforge.gradle', name: 'ForgeGradle', version: '5.1.+', changing: true
+        classpath 'org.spongepowered:mixingradle:0.7.38'
     }
 }
 plugins {
@@ -14,6 +15,7 @@ plugins {
     id 'maven-publish'
 }
 apply plugin: 'net.minecraftforge.gradle'
+apply plugin: 'org.spongepowered.mixin'
 
 version = '1.0'
 group = 'com.xianmo.aetherfix'
@@ -71,10 +73,24 @@ repositories {
 dependencies {
     minecraft 'net.minecraftforge:forge:1.18.2-40.2.0'
 
-    // Aether 依赖：当前代码只用原版 API，暂不需要。
-    // 若后续要引用 aether 的方块/实体类，再启用下面两行（会触发 fg.deobf remap，较慢）：
+    // Mixin：编译期 annotation processor（refmap 由 AP 自动生成），运行时由 Forge 自带 Mixin 库提供。
+    annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
+    implementation 'org.spongepowered:mixin:0.8.5'
+
+    // Aether 依赖：Mixin annotation processor 需要能解析被注入的 aether 目标类。
+    // 直接引用 ForgeGradle 官方映射(deobf)产物 jar（本机 gradle 缓存），避免复制大 jar。
+    // 若要换环境，可改回下方的 fg.deobf 方式（需网络可解析 aether artifact）。
+    def aetherMappedJar = 'C:/Users/examp/.gradle/caches/forge_gradle/deobf_dependencies/aether/aether/1.18.2-v1.0.0_mapped_official_1.18.2/aether-1.18.2-v1.0.0_mapped_official_1.18.2.jar'
+    compileOnly files(aetherMappedJar)
+    // 若 aether 官方映射 jar 不可用，改启用下面两行（触发 fg.deobf remap，较慢且需网络）：
     // compileOnly fg.deobf('aether:aether:1.18.2-v1.0.0')
-    // runtimeOnly fg.deobf('aether:aether:1.18.2-v1.0.0')
+}
+
+mixin {
+    // 可选：关闭 mixin 重构，本项目 mixin 均注入第三方 aether 类（remap=false），无需 refmap 重映射。
+    // add sourceSets.main 的默认行为已能定位 mixins.json 并生成 refmap。
+    add sourceSets.main, 'aether_dungeon_fix.refmap.json'
+    config 'aether_dungeon_fix.mixins.json'
 }
 
 jar {
@@ -88,7 +104,8 @@ jar {
                 "Implementation-Title"     : project.name,
                 "Implementation-Version"   : project.jar.archiveVersion,
                 "Implementation-Vendor"    : "xianmo",
-                "Implementation-Timestamp" : new Date().format("yyyy-MM-dd'T'HH:mm:ssZ")
+                "Implementation-Timestamp" : new Date().format("yyyy-MM-dd'T'HH:mm:ssZ"),
+                "MixinConfigs"             : "aether_dungeon_fix.mixins.json"
         ])
     }
 }

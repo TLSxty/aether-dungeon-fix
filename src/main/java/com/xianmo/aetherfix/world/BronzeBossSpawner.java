@@ -5,7 +5,6 @@ import com.xianmo.aetherfix.entity.ModEntityTypes;
 import com.xianmo.aetherfix.entity.SliderEntity;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.phys.AABB;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
@@ -23,7 +22,7 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * 保证：
  *  1) 只生成在 boss 房中心（登记时的坐标）；
- *  2) 每个 boss 房只生成一个（生成前检测半径内是否已有滑行者）；
+ *  2) 每个 boss 房都刷新一个 boss（已取消「半径内已有则跳过」的限制）；
  *  3) 持久化（setPersistenceRequired），不会自然消失。
  */
 @Mod.EventBusSubscriber(modid = AetherDungeonFix.MODID, bus = Mod.EventBusSubscriber.Bus.FORGE)
@@ -32,9 +31,6 @@ public class BronzeBossSpawner {
 
     /** 待生成 boss 的 boss 房中心坐标（结构生成时登记）。 */
     private static final Set<BlockPos> PENDING = ConcurrentHashMap.newKeySet();
-
-    /** 防重复检测半径（格）：该范围内已有滑行者则视为已生成。 */
-    private static final double CHECK_RADIUS = 48.0D;
 
     /** 由 BronzeDungeonStructure 在结构生成阶段调用。 */
     public static void queueBossRoom(BlockPos center) {
@@ -54,15 +50,8 @@ public class BronzeBossSpawner {
                 if (!level.isLoaded(pos)) {
                     continue;
                 }
-                AABB area = new AABB(
-                        pos.getX() - 0.5D, pos.getY() - 0.5D, pos.getZ() - 0.5D,
-                        pos.getX() + 0.5D, pos.getY() + 0.5D, pos.getZ() + 0.5D)
-                        .inflate(CHECK_RADIUS);
-                if (!level.getEntitiesOfClass(SliderEntity.class, area).isEmpty()) {
-                    // 该房间已有滑行者，标记为已处理
-                    it.remove();
-                    continue;
-                }
+                //【取消刷新限制】不再做「半径内已有滑行者则跳过」的全局去重，
+                // 每个登记过的 boss 房都各自刷新一个 boss。
                 SliderEntity slider = ModEntityTypes.SLIDER.get().create(level);
                 if (slider == null) {
                     continue;

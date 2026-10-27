@@ -16,6 +16,7 @@ import net.minecraft.world.level.levelgen.structure.pieces.PieceGeneratorSupplie
 import net.minecraft.world.level.levelgen.structure.pieces.StructurePiecesBuilder;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureManager;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.Random;
 
@@ -117,10 +118,13 @@ public class SilverDungeonStructure extends StructureFeature<NoneFeatureConfigur
         SilverTemplePiece skelPiece = new SilverTemplePiece(manager, "skeleton", offsetPos, rotation);
         builder.addPiece(skelPiece);
         try {
-            new SilverDungeonBuilder(random, 3, 3, 3)
-                .assembleDungeon(builder, manager,
-                offsetPos,
-                rotation, direction);
+            List<BlockPos> spawnPoints =
+                    new SilverDungeonBuilder(random, 3, 3, 3)
+                        .assembleDungeon(builder, manager,
+                        offsetPos,
+                        rotation, direction);
+            // 把可刷怪房间坐标注入 boss 房，供守卫女武神分散刷新使用
+            bossRoom.setSpawnPoints(spawnPoints);
         } catch (Throwable t) {
             // 与原版一致的静默处理；如需排查可临时打印 t
         }

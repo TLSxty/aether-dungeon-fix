@@ -2,7 +2,7 @@ package com.xianmo.aetherfix.entity;
 
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
-import net.minecraft.network.chat.TextComponent;
+import net.minecraft.network.chat.TranslatableComponent;
 import com.xianmo.aetherfix.ModSounds;
 import net.minecraft.network.protocol.game.ClientboundStopSoundPacket;
 import net.minecraft.network.syncher.EntityDataAccessor;
@@ -70,7 +70,7 @@ public class SunSpiritEntity extends PathfinderMob implements Enemy, AetherBossM
 
     /** Boss 条（红色，进度样式）。 */
     private final ServerBossEvent bossFight = new ServerBossEvent(
-            new TextComponent("Sun Spirit"),
+            new TranslatableComponent("entity.aether.sun_spirit"),
             BossEvent.BossBarColor.RED,
             BossEvent.BossBarOverlay.PROGRESS);
 
@@ -90,7 +90,7 @@ public class SunSpiritEntity extends PathfinderMob implements Enemy, AetherBossM
     public SunSpiritEntity(EntityType<? extends SunSpiritEntity> type, Level level) {
         super(type, level);
         this.xpReward = 100;
-        this.setBossName(new TextComponent("Sun Spirit"));
+        this.setBossName(new TranslatableComponent("entity.aether.sun_spirit"));
         // 初始不显示 Boss 条，进入战斗后才显示
         this.bossFight.setVisible(false);
         // 问题1修复：飞行 boss 改用空中移动控制，并记录环绕中心
@@ -121,7 +121,7 @@ public class SunSpiritEntity extends PathfinderMob implements Enemy, AetherBossM
         super.defineSynchedData();
         this.entityData.define(DATA_FROZEN, false);
         this.entityData.define(DATA_FROZEN_DURATION, 0);
-        this.entityData.define(DATA_BOSS_NAME, new TextComponent("Sun Spirit"));
+        this.entityData.define(DATA_BOSS_NAME, new TranslatableComponent("entity.aether.sun_spirit"));
     }
 
     @Override
@@ -367,17 +367,17 @@ public class SunSpiritEntity extends PathfinderMob implements Enemy, AetherBossM
                             SoundEvents.ENDER_DRAGON_GROWL, SoundSource.HOSTILE, 1.0F, 1.0F);
                 }
                 switch (this.chatLine++) {
-                    case 0: this.chatWithNearby(new TextComponent("Who dares intrude upon my golden halls?")); break;
-                    case 1: this.chatWithNearby(new TextComponent("You seek the treasure of the sun?")); break;
-                    case 2: this.chatWithNearby(new TextComponent("Many have come. None have returned.")); break;
-                    case 3: this.chatWithNearby(new TextComponent("The flames of this dungeon are eternal.")); break;
-                    case 4: this.chatWithNearby(new TextComponent("Your courage amuses me, mortal.")); break;
-                    case 5: this.chatWithNearby(new TextComponent("Do you truly believe you can slay me?")); break;
-                    case 6: this.chatWithNearby(new TextComponent("I have burned a thousand heroes to ash.")); break;
-                    case 7: this.chatWithNearby(new TextComponent("Turn back, while you still draw breath.")); break;
-                    case 8: this.chatWithNearby(new TextComponent("So be it. You have chosen your fate.")); break;
+                    case 0: this.chatWithNearby(new TranslatableComponent("gui.aether.sun_spirit.dialog.0")); break;
+                    case 1: this.chatWithNearby(new TranslatableComponent("gui.aether.sun_spirit.dialog.1")); break;
+                    case 2: this.chatWithNearby(new TranslatableComponent("gui.aether.sun_spirit.dialog.2")); break;
+                    case 3: this.chatWithNearby(new TranslatableComponent("gui.aether.sun_spirit.dialog.3")); break;
+                    case 4: this.chatWithNearby(new TranslatableComponent("gui.aether.sun_spirit.dialog.4")); break;
+                    case 5: this.chatWithNearby(new TranslatableComponent("gui.aether.sun_spirit.dialog.5")); break;
+                    case 6: this.chatWithNearby(new TranslatableComponent("gui.aether.sun_spirit.dialog.6")); break;
+                    case 7: this.chatWithNearby(new TranslatableComponent("gui.aether.sun_spirit.dialog.7")); break;
+                    case 8: this.chatWithNearby(new TranslatableComponent("gui.aether.sun_spirit.dialog.8")); break;
                     case 9:
-                        this.chatWithNearby(new TextComponent("Then BURN!"));
+                        this.chatWithNearby(new TranslatableComponent("gui.aether.sun_spirit.dialog.9"));
                         this.setHealth(this.getMaxHealth());
                         
 
